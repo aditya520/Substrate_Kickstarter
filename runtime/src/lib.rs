@@ -188,7 +188,9 @@ impl sudo::Trait for Runtime {
 }
 
 /// Used for the module template in `./template.rs`
-impl kickstart::Trait for Runtime {}
+impl kickstart::Trait for Runtime {
+	type Event = Event;
+}
 
 construct_runtime!(
 	pub enum Runtime with Log(InternalLog: DigestItem<Hash, AuthorityId, AuthoritySignature>) where
@@ -204,7 +206,7 @@ construct_runtime!(
 		Balances: balances,
 		Sudo: sudo,
 		// Used for the module template in `./template.rs`
-		KickstartModule: kickstart::{Module, Call, Storage},
+		KickstartModule: kickstart::{Module, Call, Storage, Event<T>},
 	}
 );
 

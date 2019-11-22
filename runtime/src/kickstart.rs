@@ -7,28 +7,44 @@ use system::ensure_signed;
 
 #[derive(Encode, Decode, Default, Clone, PartialEq)]
 #[cfg_attr(feature = "std", derive(Debug))]
-pub struct Campaign<Hash, Balance> {
+pub struct Campaign<Hash, Balance, AccountId> {
 	id: Hash,
+	owner: AccountId,
 	value: Balance,
 	approvalcount: u64,
 	minimumcontribution: u64,
 	completed: bool,
 }
 
-pub trait Trait: balances::Trait {}
+pub trait Trait: balances::Trait {
+	type Event: From<Event<Self>> + Into<<Self as system::Trait>::Event>;
+}
+
+decl_event!(
+    pub enum Event<T>
+    where
+        <T as system::Trait>::AccountId,
+        <T as system::Trait>::Hash
+    {
+        Created(AccountId, Hash),
+    }
+);
 
 decl_storage! {
 	trait Store for Module<T: Trait> as KickstartModule {
-		Campaigns get(campaign): map T::Hash => Campaign<T::Hash, T::Balance>;
+		Campaigns get(campaign): map T::Hash => Campaign<T::Hash, T::Balance, T::AccountId>;
 		CampaignOwner get (owner_of_campaign): map T::Hash => Option<T::AccountId>;
 		OwnedCampaign get(campaign_of_owner): map T::AccountId => T::Hash;
-
+		CampaignApprovals get(no_approvals_campaign): map T::Hash => u64;
 		Nonce: u64;
 	}
 }
 
 decl_module! {
 	pub struct Module<T: Trait> for enum Call where origin: T::Origin {
+
+		fn deposit_event<T>() = default;
+
 		fn create_campaign(origin) -> Result {
 			let sender = ensure_signed(origin)?;
 
@@ -40,6 +56,7 @@ decl_module! {
 
 			let new_campaign = Campaign {
 				id: <T as system::Trait>::Hashing::hash_of(&0),
+				owner: ,
 				value: <T::Balance as As<u64>>::sa(0),
 				minimumcontribution: 0,
 				approvalcount: 0,
@@ -51,6 +68,8 @@ decl_module! {
 			<OwnedCampaign<T>>::insert(&sender,random_hash);
 
 			<Nonce<T>>::mutate(|n| *n += 1);
+
+			Self::deposit_event(RawEvent::Created(sender, random_hash));
 
 			Ok(())
 		}
