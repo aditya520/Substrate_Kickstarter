@@ -1,3 +1,9 @@
+Still Incomplete, building custom functions
+
+
+
+
+
 # kickstarter
 
 A new SRML-based Substrate node, ready for hacking.
