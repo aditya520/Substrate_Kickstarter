@@ -10,7 +10,7 @@ use system::ensure_signed;
 pub struct Campaign<Hash, Balance, AccountId> {
 	id: Hash,
 	owner: AccountId,
-	value: Balance,
+	targetprice: Balance,
 	approvalcount: u64,
 	minimumcontribution: u64,
 	completed: bool,
@@ -36,6 +36,7 @@ decl_storage! {
 		CampaignOwner get (owner_of_campaign): map T::Hash => Option<T::AccountId>;
 		OwnedCampaign get(campaign_of_owner): map T::AccountId => T::Hash;
 		CampaignApprovals get(no_approvals_campaign): map T::Hash => u64;
+		// AllCampaignCount get(campaign_count): u64;
 		Nonce: u64;
 	}
 }
@@ -45,7 +46,7 @@ decl_module! {
 
 		fn deposit_event<T>() = default;
 
-		fn create_campaign(origin) -> Result {
+		fn create_campaign(origin, targetprice: T::Balance,minimumcontribution: u64) -> Result {
 			let sender = ensure_signed(origin)?;
 
 			let nonce = <Nonce<T>>::get();
@@ -55,10 +56,10 @@ decl_module! {
 			ensure!(!<CampaignOwner<T>>::exists(random_hash), "Campaign already exists");
 
 			let new_campaign = Campaign {
-				id: <T as system::Trait>::Hashing::hash_of(&0),
-				owner: ,
-				value: <T::Balance as As<u64>>::sa(0),
-				minimumcontribution: 0,
+				id: random_hash,
+				owner: sender.clone()	,
+				targetprice: targetprice,
+				minimumcontribution: minimumcontribution,
 				approvalcount: 0,
 				completed: false,
 			};
