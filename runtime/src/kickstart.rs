@@ -12,7 +12,7 @@ pub struct Campaign<Hash, Balance, AccountId> {
 	owner: AccountId,
 	targetprice: Balance,
 	approvalcount: u64,
-	minimumcontribution: u64,
+	minimumcontribution: Balance,
 	completed: bool,
 }
 
@@ -46,7 +46,7 @@ decl_module! {
 
 		fn deposit_event<T>() = default;
 
-		fn create_campaign(origin, targetprice: T::Balance,minimumcontribution: u64) -> Result {
+		fn create_campaign(origin, targetprice: T::Balance,minimumcontribution: T::Balance) -> Result {
 			let sender = ensure_signed(origin)?;
 
 			let nonce = <Nonce<T>>::get();
@@ -73,6 +73,22 @@ decl_module! {
 			Self::deposit_event(RawEvent::Created(sender, random_hash));
 
 			Ok(())
+		}
+
+		fn contribute_campaign(origin, contribution: T::Balance, contribute_to: T::Hash){
+			let sender = ensure_signed(origin)?;
+
+			ensure!(<Campaigns<T>>::exists(contribute_to), "This Campaign does not exist");
+			let owner = Self::owner_of_campaign(contribute_to).ok_or("No owner for this Campaign")?;
+			ensure!(owner != sender, "You cannot contribute to your own Campagin");
+			
+			let mut campaign = Self::campaign(contribute_to);
+			let minimumcontribution = campaign.minimumcontribution;
+			
+			ensure!(contribution >= minimumcontribution, "You have to pay atleast the minimum amount");
+
+			
+
 		}
 	}
 }
