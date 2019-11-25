@@ -1,7 +1,7 @@
 use parity_codec::{Decode, Encode};
 use runtime_primitives::traits::{As, Hash};
 use support::{
-	decl_event, decl_module, decl_storage, dispatch::Result, ensure, StorageMap, StorageValue,
+	decl_event, decl_module, decl_storage, dispatch::Result, ensure, StorageMap, StorageValue, traits::Currency,
 };
 use system::ensure_signed;
 
@@ -11,6 +11,7 @@ pub struct Campaign<Hash, Balance, AccountId> {
 	id: Hash,
 	owner: AccountId,
 	targetprice: Balance,
+	balance: Balance,
 	approvalcount: u64,
 	minimumcontribution: Balance,
 	completed: bool,
@@ -57,8 +58,9 @@ decl_module! {
 
 			let new_campaign = Campaign {
 				id: random_hash,
-				owner: sender.clone()	,
+				owner: sender.clone(),
 				targetprice: targetprice,
+				balance: <T::Balance as As<u64>>::sa(0),
 				minimumcontribution: minimumcontribution,
 				approvalcount: 0,
 				completed: false,
@@ -80,13 +82,14 @@ decl_module! {
 
 			ensure!(<Campaigns<T>>::exists(contribute_to), "This Campaign does not exist");
 			let owner = Self::owner_of_campaign(contribute_to).ok_or("No owner for this Campaign")?;
-			ensure!(owner != sender, "You cannot contribute to your own Campagin");
+			ensure!(owner != sender, "You cannot contribute to your own Campaign");
 			
 			let mut campaign = Self::campaign(contribute_to);
 			let minimumcontribution = campaign.minimumcontribution;
 			
 			ensure!(contribution >= minimumcontribution, "You have to pay atleast the minimum amount");
-
+			<balances::Module<T> as Currency<_>>::transfer(&sender, &owner, contribution)?;
+			campaign.balance += contribution;
 			
 
 		}
