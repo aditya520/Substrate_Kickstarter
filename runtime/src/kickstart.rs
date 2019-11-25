@@ -91,6 +91,7 @@ decl_module! {
 			<balances::Module<T> as Currency<_>>::transfer(&sender, &owner, contribution)?;
 			campaign.balance += contribution;
 			
+			<Campaigns<T>>::insert(campaign.id,campaign);
 
 		}
 	}
