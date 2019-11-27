@@ -36,7 +36,7 @@ decl_storage! {
 		Campaigns get(campaign): map T::Hash => Campaign<T::Hash, T::Balance, T::AccountId>;
 		CampaignOwner get (owner_of_campaign): map T::Hash => Option<T::AccountId>;
 		OwnedCampaign get(campaign_of_owner): map T::AccountId => T::Hash;
-		CampaignApprovals get(no_approvals_campaign): map T::Hash => u64;
+		// CampaignApprovals get(no_approvals_campaign): map T::Hash => u64;
 		// AllCampaignCount get(campaign_count): u64;
 		Nonce: u64;
 	}
@@ -90,7 +90,6 @@ decl_module! {
 			ensure!(contribution >= minimumcontribution, "You have to pay atleast the minimum amount");
 			<balances::Module<T> as Currency<_>>::transfer(&sender, &owner, contribution)?;
 			campaign.balance += contribution;
-			
 			<Campaigns<T>>::insert(campaign.id,campaign);
 
 		}

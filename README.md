@@ -1,7 +1,4 @@
-Still Incomplete, building custom functions
-
-
-
+It was a trial project. Suggest some more function to add.
 
 
 # kickstarter
