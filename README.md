@@ -1,4 +1,4 @@
-It was a trial project. Suggest some more function to add.
+It is a trial project. Suggest some more function to add.
 
 
 # kickstarter
