@@ -1,6 +1,6 @@
 use parity_codec::{Decode, Encode};
 use rstd::prelude::*;
-use runtime_primitives::traits::{As, Hash, Zero};
+use runtime_primitives::traits::{As, Hash};
 use support::{
 	decl_event, decl_module, decl_storage,
 	dispatch::Result,
@@ -117,5 +117,224 @@ decl_module! {
 			Self::deposit_event(RawEvent::CreateCampaign(sender, campaign_id, target_money, support_money, expiry));
 			Ok(())
 		}
+
+		/// invest a project
+		fn invest(origin, campaign_id: T::Hash, invest_amount: T::Balance) -> Result {
+			let sender = ensure_signed(origin)?;
+
+			let owner = Self::owner_of_campaign(campaign_id).ok_or("Campaign has no owner")?;
+			ensure!(owner != sender, "You can't invest for your own project");
+
+			// The investor had not invested the project before
+			if !<InvestAmount<T>>::exists((campaign_id.clone(), sender.clone())){
+				Self::not_invest_before(sender.clone(), campaign_id.clone(), invest_amount.clone())?;
+			}else{
+				Self::invest_before(sender.clone(), campaign_id.clone(), invest_amount.clone())?;
+			}
+
+			Self::deposit_event(RawEvent::Invest(campaign_id, sender, invest_amount));
+
+			Ok(())
+		}
+
+		fn on_finalize() {
+		// get all the Campaign present in the block
+			let block_number = <system::Module<T>>::block_number();
+			let campaign_hash = Self::campaign_expire_at(block_number);
+
+			for campaign_id in &campaign_hash{
+				let mut campaign = Self::campaign(campaign_id);
+				let amount_of_investment = Self::total_amount_of_campaign(campaign_id);
+				if amount_of_investment >= campaign.campaign_target_money{
+					// Make the status success
+					campaign.campaign_status = 1;
+					<Campaigns<T>>::insert(campaign_id.clone(), campaign);
+					// Get the owner of the funding
+					let _owner = Self::owner_of_campaign(campaign_id);
+					match _owner {
+						Some(owner) => {
+							// Get all the investors
+							let investors = Self::invest_accounts(campaign_id);
+							let mut no_error = true;
+							// Iterate every investor, unreserve the money that he/she had invested and transfer it to owner
+							'inner: for investor in &investors{
+								let invest_balance = Self::invest_amount_of((*campaign_id, investor.clone()));
+								let _ = <balances::Module<T>>::unreserve(&investor, invest_balance.clone());
+								// If the investor is owner, just unreserve the money
+								if investor == &owner{ continue;}
+								let _currency_transfer = <balances::Module<T> as Currency<_>>::transfer(&investor, &owner, invest_balance);
+								match _currency_transfer {
+									Err(_e) => {
+										no_error = false;
+										break 'inner;
+									},
+									Ok(_v) => {}
+								}
+							}
+							if no_error {
+								let _ = <balances::Module<T>>::reserve(&owner, amount_of_investment);
+								// deposit the event
+								Self::deposit_event(RawEvent::CampaignFinalized(*campaign_id, amount_of_investment, block_number, true));
+							}
+						},
+						None => continue,
+					}
+				}else{ // refund all of the money
+					// Make the status fail
+					campaign.campaign_status = 2;
+					<Campaigns<T>>::insert(campaign_id.clone(), campaign);
+					let campaign_accounts = Self::invest_accounts(campaign_id);
+					for account in campaign_accounts {
+						let invest_balance = Self::invest_amount_of((*campaign_id, account.clone()));
+						let _ = <balances::Module<T>>::unreserve(&account, invest_balance);
+					}
+					// deposit the event
+					Self::deposit_event(RawEvent::CampaignFinalized(*campaign_id, amount_of_investment, block_number, false));
+				}
+			}
+		}
+	}
+}
+
+impl<T: Trait> Module<T> {
+	fn mint(
+		sender: T::AccountId,
+		campaign_id: T::Hash,
+		expiry: T::BlockNumber,
+		support_money: T::Balance,
+		new_campaign: Campaign<T::Hash, T::AccountId, T::Balance, T::BlockNumber>,
+	) -> Result {
+		// updating the global states
+		<Campaigns<T>>::insert(campaign_id.clone(), new_campaign.clone());
+		<CampaignOwner<T>>::insert(campaign_id.clone(), sender.clone());
+
+		<CampaignsByBlockNumber<T>>::mutate(expiry, |campaigns| campaigns.push(campaign_id.clone()));
+		//Verify first Execute Last
+		let campaign_count = Self::campaign_count();
+		let new_campaign_count = campaign_count
+			.checked_add(1)
+			.ok_or("Overflow adding a new Campaign")?;
+
+		<AllCampaignArray<T>>::insert(&campaign_count, campaign_id.clone());
+		<AllCampaignCount<T>>::put(new_campaign_count);
+		<AllCampaignIndex<T>>::insert(campaign_id.clone(), campaign_count);
+
+		let owned_campaign_count = Self::owned_campaign_count(&sender);
+		let new_owned_campaign_count = owned_campaign_count
+			.checked_add(1)
+			.ok_or("Overflow adding a new Campaign")?;
+
+		<OwnedCampaignArray<T>>::insert(
+			(sender.clone(), owned_campaign_count.clone()),
+			campaign_id.clone(),
+		);
+		<OwnedCampaignCount<T>>::insert(&sender, new_owned_campaign_count);
+		<OwnedCampaignIndex<T>>::insert((sender.clone(), campaign_id.clone()), owned_campaign_count);
+
+		if support_money > T::Balance::sa(0) {
+			Self::not_invest_before(sender.clone(), campaign_id.clone(), support_money.clone())?;
+		}
+		// add the nonce
+		<Nonce<T>>::mutate(|n| *n += 1);
+
+		Ok(())
+	}
+
+	//The investor had invested the project before
+	fn invest_before(
+		sender: T::AccountId,
+		campaign_id: T::Hash,
+		invest_amount: T::Balance,
+	) -> Result {
+		ensure!(<Campaigns<T>>::exists(campaign_id),"The Campaign exist does not exist");
+		// ensure the investor has enough money
+		ensure!(
+			<balances::Module<T>>::free_balance(sender.clone()) >= invest_amount,
+			"You don't have enough free balance to invest on this campaign"
+		);
+
+		let campaign = Self::campaign(&campaign_id);
+		ensure!(
+			<system::Module<T>>::block_number() < campaign.campaign_expiry,
+			"This Campaign expired."
+		);
+
+		// reserve the amount of money
+		<balances::Module<T>>::reserve(&sender, invest_amount)?;
+
+		let amount_of_investor_on_campaign =
+			Self::invest_amount_of((campaign_id.clone(), sender.clone()));
+		let new_amount_of_investor_on_campaign =
+			amount_of_investor_on_campaign + invest_amount.clone();
+
+		<InvestAmount<T>>::insert(
+			(campaign_id, sender),
+			new_amount_of_investor_on_campaign.clone(),
+		);
+
+		// get the total amount of the project and add invest_amount
+		let amount_of_campaign = Self::total_amount_of_campaign(&campaign_id);
+		let new_amount_of_campaign = amount_of_campaign + invest_amount;
+
+		// change the total amount of the project has collected
+		<CampaignSupportedAmount<T>>::insert(&campaign_id, new_amount_of_campaign);
+
+		Ok(())
+	}
+
+	// The investor doesn't invest the project before
+	fn not_invest_before(
+		sender: T::AccountId,
+		campaign_id: T::Hash,
+		invest_amount: T::Balance,
+	) -> Result {
+		ensure!(<Campaigns<T>>::exists(campaign_id),"The campaign does not exist");
+		// ensure that the investor has enough money
+		ensure!(
+			<balances::Module<T>>::free_balance(sender.clone()) >= invest_amount,
+			"You don't have enough free balance for investing for this campaign"
+		);
+
+		// get the number of projects that the investor had invested and add it
+		let invested_campaign_count = Self::invested_campaign_count(&sender);
+		let new_invested_campaign_count = invested_campaign_count
+			.checked_add(1)
+			.ok_or("Overflow adding a new invested Campaign")?;
+
+		let campaign = Self::campaign(&campaign_id);
+		ensure!(<system::Module<T>>::block_number() < campaign.campaign_expiry,"This campaign is expired.");
+
+		// reserve the amount of money
+		<balances::Module<T>>::reserve(&sender, invest_amount)?;
+
+		<InvestAmount<T>>::insert((campaign_id.clone(), sender.clone()), invest_amount.clone());
+		<InvestAccounts<T>>::mutate(&campaign_id, |accounts| accounts.push(sender.clone()));
+
+		// add total support count
+		let investor_count = <InvestAccountsCount<T>>::get(&campaign_id);
+		let new_investor_count = investor_count
+			.checked_add(1)
+			.ok_or("Overflow adding the total number of investors of a campaign")?;
+		<InvestAccountsCount<T>>::insert(campaign_id.clone(), new_investor_count);
+
+		// change the state of invest related fields
+		<InvestedCampaignsArray<T>>::insert(
+			(sender.clone(), invested_campaign_count),
+			campaign_id.clone(),
+		);
+		<InvestedCampaignsCount<T>>::insert(&sender, new_invested_campaign_count);
+		<InvestedCampaignsIndex<T>>::insert(
+			(sender.clone(), campaign_id.clone()),
+			invested_campaign_count,
+		);
+
+		// get the total amount of the project and add invest_amount
+		let amount_of_campaign = Self::total_amount_of_campaign(&campaign_id);
+		let new_amount_of_campaign = amount_of_campaign + invest_amount;
+
+
+		<CampaignSupportedAmount<T>>::insert(&campaign_id, new_amount_of_campaign);
+
+		Ok(())
 	}
 }
